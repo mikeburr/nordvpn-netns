@@ -20,7 +20,7 @@ WG_NAME=${WG_NAME:-"nordvpn"}
 WG_IP=${WG_IP:-"10.5.0.2/32"}
 
 # The country code to use for the NordVPN server. Default to Switzerland.
-WG_COUNTRY_CODE=${COUNTRY_CODE:-"CH"}
+WG_COUNTRY_CODE=${WG_COUNTRY_CODE:-"CH"}
 
 # A file containing the WireGuard private key.
 WG_PRIVATE_KEY="${CREDENTIALS_DIRECTORY:-/etc/nordvpn-netns}/${WG_NAME}.key"
