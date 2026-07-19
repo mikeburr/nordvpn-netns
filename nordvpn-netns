@@ -25,6 +25,23 @@ WG_COUNTRY_CODE=${WG_COUNTRY_CODE:-"CH"}
 # A file containing the WireGuard private key.
 WG_PRIVATE_KEY="${CREDENTIALS_DIRECTORY:-/etc/nordvpn-netns}/${WG_NAME}.key"
 
+WG_VETH_SUBNET="${WG_VETH_SUBNET:-}"
+
+# veth configuration
+if [[ -n $WG_VETH_SUBNET ]]; then
+    WG_HOST_VETH=${WG_HOST_VETH:-"${WG_NAME}-host"}
+    WG_NETNS_VETH=${WG_NETNS_VETH:-"${WG_NAME}-netns"}
+
+    # Calculate IP addresses
+    eval $(ipcalc ${WG_VETH_SUBNET} -s 2 | sed \
+      -e '/^HostM/!d' \
+      -e 's/HostMin/WG_HOST_VETH_ADDR/' \
+      -e 's/HostMax/WG_NETNS_VETH_ADDR/' \
+      -e 's/: */=/' \
+      -e 's/ .*//' \
+      | tail -2)
+fi
+
 # The command to run. Either `up` or `down`.
 COMMAND="$1"
 
@@ -104,6 +121,23 @@ up() {
 
     # Route all traffic through the WireGuard interface
     ip -j -n "${WG_NAME}" route add default dev "${WG_NAME}"
+
+    # Set up veth link if requested
+    if [[ -n $WG_VETH_SUBNET ]]; then
+        # Create links
+        ip link add "${WG_HOST_VETH}" type veth peer name "${WG_NETNS_VETH}"
+
+        # Move netns veth into namespace
+        ip link set "${WG_NETNS_VETH}" netns "${WG_NAME}"
+
+        # Assign addresses & bring up links
+        ip addr add "${WG_HOST_VETH_ADDR}/30" dev "${WG_HOST_VETH}"
+        ip link set "${WG_HOST_VETH}" up
+
+        ip -n "${WG_NAME}" addr add "${WG_NETNS_VETH_ADDR}/30" dev "${WG_NETNS_VETH}"
+        ip -n "${WG_NAME}" link set "${WG_NETNS_VETH}" up
+    fi
+
     echo >&2 "Namespace ${WG_NAME} is up"
 
     if [[ -v NOTIFY_SOCKET ]]; then
@@ -116,6 +150,12 @@ down() {
     echo >&2 "Stopping namespace ${WG_NAME}"
     ip -n "${WG_NAME}" link set down dev "${WG_NAME}" || true
     ip -n "${WG_NAME}" link del dev "${WG_NAME}" || true
+    if [[ -n $WG_VETH_SUBNET ]]; then
+        ip -n "${WG_NAME}" link set down dev "${WG_NETNS_VETH}" || true
+        ip -n "${WG_NAME}" link del dev "${WG_NETNS_VETH}" || true
+        ip link set down dev "${WG_HOST_VETH}" || true
+        ip link del dev "${WG_HOST_VETH}" || true
+    fi
     ip netns del "${WG_NAME}" || true
     ip link del "${WG_NAME}" || true
     echo >&2 "Namespace ${WG_NAME} is down"
